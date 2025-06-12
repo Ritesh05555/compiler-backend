@@ -1,5 +1,5 @@
 {
-  "name": "node-js",
+  "name": "js",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
@@ -9,7 +9,6 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
   "dependencies": {
     "axios": "^1.9.0",
     "body-parser": "^2.2.0",
@@ -17,11 +16,21 @@
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "express-rate-limit": "^7.5.0",
+    "lodash": "^4.17.21",
     "mongoose": "^8.15.1",
     "uuid": "^11.1.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.10",
     "prettier": "^3.5.3"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ritesh05555/compiler-backend.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Ritesh05555/compiler-backend/issues"
+  },
+  "homepage": "https://github.com/Ritesh05555/compiler-backend#readme",
+  "description": ""
 }
