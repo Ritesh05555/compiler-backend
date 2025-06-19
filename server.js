@@ -1951,7 +1951,7 @@ const execPromise = util.promisify(exec);
 const app = express();
 
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: 'https://compiler-frontend-gxeb.onrender.com',
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type'],
 }));
