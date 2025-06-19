@@ -5,12 +5,12 @@ const { formatCode } = require('../utils/formatCode');
 const { getCodeTemplate } = require('../utils/templates');
 
 const languageMap = {
-  c: 53, // C (GCC 9.2.0)
-  cpp: 54, // C++ (G++ 9.2.0)
-  java: 62, // Java (OpenJDK 13.0.1)
-  python: 71, // Python (3.8.1)
-  javascript: 63, // JavaScript (Node.js 12.14.0)
-  php: 68 // PHP (7.4.1)
+  c: 53,
+  cpp: 54,
+  java: 62,
+  python: 71,
+  javascript: 63,
+  php: 68
 };
 
 exports.executeCode = async (req, res, next) => {
@@ -19,7 +19,6 @@ exports.executeCode = async (req, res, next) => {
     console.log('Received code:', { code, language });
 
     if (language === 'python') {
-      // Use local backend for Python to support Matplotlib
       const backendResponse = await axios.post('http://localhost:5000/api/code/execute', {
         code,
         language,
@@ -28,7 +27,6 @@ exports.executeCode = async (req, res, next) => {
       return res.status(200).json(backendResponse.data);
     }
 
-    // Use Judge0 for other languages
     const languageIds = { javascript: 63, cpp: 54, java: 62, c: 50, php: 68 };
     const languageId = languageIds[language] || 63;
     console.log('Language ID:', languageId);
@@ -50,13 +48,11 @@ exports.executeCode = async (req, res, next) => {
       }
     );
 
-    console.log('Judge0 response:', response.data);
     const { stdout, stderr, compile_output, message, status } = response.data;
     let output = stdout || stderr || compile_output || message || 'No output';
     if (stderr || compile_output || message || (status && status.description !== 'Accepted')) {
       output = `Error: ${output} (Status: ${status?.description || 'Unknown'})`;
     }
-    console.log('Processed output:', output);
 
     res.status(200).json({ output });
   } catch (err) {
@@ -65,7 +61,6 @@ exports.executeCode = async (req, res, next) => {
   }
 };
 
-// Other functions remain unchanged
 exports.saveCode = async (req, res, next) => {
   try {
     const { code, language } = req.body;
@@ -76,10 +71,11 @@ exports.saveCode = async (req, res, next) => {
       code: formattedCode,
       language,
       linkId,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000) // 1 hour
     });
     await newCode.save();
 
-    res.status(201).json({ linkId });
+    res.status(201).json({ link: `https://compiler-frontend-gxeb.onrender.com/${language}/${linkId}` });
   } catch (err) {
     next(err);
   }
@@ -90,6 +86,10 @@ exports.getCode = async (req, res, next) => {
     const code = await Code.findOne({ linkId: req.params.id });
     if (!code) {
       return res.status(404).json({ error: 'Code not found' });
+    }
+    const now = new Date();
+    if (code.expiresAt && code.expiresAt < now) {
+      return res.status(410).json({ error: 'Link expired' });
     }
     res.status(200).json({ code: code.code, language: code.language });
   } catch (err) {

@@ -1934,6 +1934,145 @@
 // const PORT = process.env.PORT || 5000;
 // app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
+////////////////////////////////////////////
+////////////////////////////////////////////
+// docker update 
+// const express = require('express');
+// const mongoose = require('mongoose');
+// const cors = require('cors');
+// const codeRoutes = require('./routes/code');
+// const connectDB = require('./config/db');
+// const errorHandler = require('./middleware/errorHandler');
+// const { exec } = require('child_process');
+// const util = require('util');
+// const fs = require('fs/promises');
+// const path = require('path');
+// require('dotenv').config();
+
+
+// const execPromise = util.promisify(exec);
+// const app = express();
+
+// app.use(cors({
+//   origin: 'https://compiler-frontend-gxeb.onrender.com',
+//   methods: ['GET', 'POST'],
+//   allowedHeaders: ['Content-Type'],
+// }));
+
+// app.use(express.json());
+
+// const imagesDir = path.join(__dirname, 'temp', 'images');
+// app.use('/images', express.static(imagesDir));
+
+// connectDB();
+
+// const tempDir = path.join(__dirname, 'temp');
+// fs.mkdir(tempDir, { recursive: true }).catch(err => console.error('Error creating temp dir:', err));
+// fs.mkdir(imagesDir, { recursive: true }).catch(err => console.error('Error creating images dir:', err));
+
+// const cleanupImages = async () => {
+//   try {
+//     const files = await fs.readdir(imagesDir);
+//     const now = Date.now();
+//     const expiry = 4 * 60 * 60 * 1000;
+//     for (const file of files) {
+//       const filePath = path.join(imagesDir, file);
+//       const stats = await fs.stat(filePath);
+//       if (now - stats.mtimeMs > expiry) {
+//         await fs.unlink(filePath);
+//         console.log(`Deleted old image: ${file}`);
+//       }
+//     }
+//   } catch (err) {
+//     console.error('Error cleaning images:', err);
+//   }
+// };
+
+// setInterval(cleanupImages, 60 * 60 * 1000);
+
+// app.get('/', (req, res) => {
+//   res.send('🛠️ Compiler backend is running on Kode Smith server!');
+// });
+
+// app.post('/api/code/execute', async (req, res) => {
+//   const { code, language } = req.body;
+//   if (!code || !language) return res.status(400).json({ error: 'Code and language are required' });
+//   if (!['python', 'javascript', 'cpp', 'c', 'java'].includes(language)) return res.status(400).json({ error: 'Unsupported language' });
+
+//   const baseFileName = `Code${Date.now()}`;
+//   let finalCode = code;
+//   const filePath = path.join(tempDir, `${baseFileName}.${language === 'python' ? 'py' : language === 'javascript' ? 'js' : language === 'java' ? 'java' : language}`);
+//   const imageFileName = `${baseFileName}.png`;
+//   const imageFile = path.join(imagesDir, imageFileName);
+
+//   try {
+//     if (language === 'python') {
+//   const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+
+//   if (/plt\.|matplotlib|pyplot/.test(code)) {
+//     const safeImagePath = imageFile.replace(/\\/g, '/'); // Cross-platform compatibility
+//     finalCode = `import os\nimport matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt\nimport pandas as pd\n${code}\nplt.savefig('${safeImagePath}')\nprint("Image saved to ${safeImagePath}")`;
+//   }
+
+//   await fs.writeFile(filePath, finalCode);
+
+//   const { stdout, stderr } = await execPromise(`${pythonCmd} -X utf8 "${filePath}"`, { timeout: 20000 });
+//   const imageExists = await fs.access(imageFile).then(() => true).catch(() => false);
+//   const response = { output: stdout || '', error: stderr || '' };
+//   if (imageExists) response.imageUrl = `/images/${imageFileName}`;
+//   return res.json(response);
+// }
+
+
+//     if (language === 'javascript') {
+//       finalCode = `(function() { try { ${code} } catch (e) { console.error(e.message); console.error(e.stack); }})();`;
+//       await fs.writeFile(filePath, finalCode);
+//       const { stdout, stderr } = await execPromise(`node "${filePath}"`, { timeout: 8000 });
+//       return res.json({ output: stdout || '', error: stderr || '' });
+//     }
+
+//     if (language === 'cpp' || language === 'c') {
+//       const exeFile = path.join(tempDir, `${baseFileName}.out`);
+//       await fs.writeFile(filePath, code);
+//       const compiler = language === 'cpp' ? 'g++' : 'gcc';
+//       await execPromise(`${compiler} "${filePath}" -o "${exeFile}"`, { timeout: 10000 });
+//       const { stdout, stderr } = await execPromise(`"${exeFile}"`, { timeout: 8000 });
+//       return res.json({ output: stdout || '', error: stderr || '' });
+//     }
+
+//     if (language === 'java') {
+//       const classNameMatch = code.match(/public\s+class\s+(\w+)/);
+//       const className = classNameMatch ? classNameMatch[1] : baseFileName;
+//       const javaFilePath = path.join(tempDir, `${className}.java`);
+//       const correctedCode = classNameMatch ? code : `public class ${className} { public static void main(String[] args) { ${code} } }`;
+
+//       await fs.writeFile(javaFilePath, correctedCode);
+//       try {
+//         await execPromise(`javac "${javaFilePath}"`, { timeout: 20000 });
+//       } catch (compErr) {
+//         return res.status(400).json({ error: 'Compilation failed: ' + (compErr.stderr || compErr.message) });
+//       }
+
+//       try {
+//         const { stdout, stderr } = await execPromise(`java -cp "${tempDir}" ${className}`, { timeout: 20000 });
+//         return res.json({ output: stdout || '', error: stderr || '' });
+//       } catch (execErr) {
+//         return res.status(400).json({ error: 'Execution failed: ' + (execErr.stderr || execErr.message) });
+//       } finally {
+//         await fs.unlink(javaFilePath).catch(() => {});
+//         await fs.unlink(path.join(tempDir, `${className}.class`)).catch(() => {});
+//       }
+//     }
+//   } catch (err) {
+//     return res.status(500).json({ error: `Server error: ${err.message}` });
+//   }
+// });
+
+// app.use('/api/code', codeRoutes);
+// app.use(errorHandler);
+
+// const PORT = process.env.PORT || 5000;
+// app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
 const express = require('express');
 const mongoose = require('mongoose');
@@ -1945,6 +2084,7 @@ const { exec } = require('child_process');
 const util = require('util');
 const fs = require('fs/promises');
 const path = require('path');
+const Code = require('./models/Code');
 require('dotenv').config();
 
 const execPromise = util.promisify(exec);
@@ -1987,6 +2127,18 @@ const cleanupImages = async () => {
 
 setInterval(cleanupImages, 60 * 60 * 1000);
 
+setInterval(async () => {
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  try {
+    const result = await Code.deleteMany({ createdAt: { $lt: oneHourAgo } });
+    if (result.deletedCount > 0) {
+      console.log(`⏰ Deleted ${result.deletedCount} expired code snippets.`);
+    }
+  } catch (err) {
+    console.error('❌ Error deleting expired code snippets:', err);
+  }
+}, 10 * 60 * 1000);
+
 app.get('/', (req, res) => {
   res.send('🛠️ Compiler backend is running on Kode Smith server!');
 });
@@ -2004,12 +2156,16 @@ app.post('/api/code/execute', async (req, res) => {
 
   try {
     if (language === 'python') {
+      const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+
       if (/plt\.|matplotlib|pyplot/.test(code)) {
-        const imageSafePath = imageFile.replace(/\\/g, '/');
-        finalCode = `import os\nimport matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt\nimport pandas as pd\n${code}\nplt.savefig('${imageSafePath}')\nprint("Image saved to ${imageSafePath}")`;
+        const safeImagePath = imageFile.replace(/\\/g, '/');
+        finalCode = `import os\nimport matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt\nimport pandas as pd\n${code}\nplt.savefig('${safeImagePath}')\nprint("Image saved to ${safeImagePath}")`;
       }
-      await fs.writeFile(filePath, finalCode, { encoding: 'utf-8' });
-      const { stdout, stderr } = await execPromise(`python -X utf8 "${filePath}"`, { timeout: 20000 });
+
+      await fs.writeFile(filePath, finalCode);
+
+      const { stdout, stderr } = await execPromise(`${pythonCmd} -X utf8 "${filePath}"`, { timeout: 20000 });
       const imageExists = await fs.access(imageFile).then(() => true).catch(() => false);
       const response = { output: stdout || '', error: stderr || '' };
       if (imageExists) response.imageUrl = `/images/${imageFileName}`;

@@ -1,10 +1,10 @@
 # Use Ubuntu 20.04 as base
 FROM ubuntu:20.04
 
-# Disable prompts during install
+# Disable interactive prompts during install
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Update & install core compilers, interpreters, tools
+# Update & install base tools & compilers
 RUN apt-get update && apt-get install -y \
     curl \
     wget \
@@ -18,11 +18,14 @@ RUN apt-get update && apt-get install -y \
     nano \
     software-properties-common
 
-# Install latest Node.js LTS (v18)
+# Link python3 to python for compatibility
+RUN ln -s /usr/bin/python3 /usr/bin/python
+
+# Install Node.js 18.x
 RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
     && apt-get install -y nodejs
 
-# Python: Install commonly used libraries
+# Install Python libraries
 RUN pip3 install --no-cache-dir \
     numpy \
     pandas \
@@ -36,25 +39,25 @@ RUN pip3 install --no-cache-dir \
     jupyter \
     seaborn
 
-# JavaScript: install useful global tools/libraries
+# Install global Node tools
 RUN npm install -g \
     typescript \
     eslint \
     nodemon \
     prettier
 
-# Set working directory
+# Set app directory
 WORKDIR /app
 
-# Copy Node.js backend code
+# Copy dependencies and install
 COPY package*.json ./
 RUN npm install
 
-# Copy rest of the codebase
+# Copy rest of the app
 COPY . .
 
-# Open API port
+# Open backend port
 EXPOSE 5000
 
-# Default start command
+# Start server
 CMD ["node", "server.js"]
