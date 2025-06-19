@@ -1810,32 +1810,25 @@ const path = require('path');
 require('dotenv').config();
 
 const execPromise = util.promisify(exec);
-
 const app = express();
 
-// CORS setup for frontend deployment
 app.use(cors({
-  origin: 'https://compiler-frontend-gxeb.onrender.com',
+  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type'],
 }));
 
-
 app.use(express.json());
 
-// Serve static images
 const imagesDir = path.join(__dirname, 'temp', 'images');
 app.use('/images', express.static(imagesDir));
 
-// MongoDB connection
 connectDB();
 
-// Create necessary directories
 const tempDir = path.join(__dirname, 'temp');
 fs.mkdir(tempDir, { recursive: true }).catch(err => console.error('Error creating temp dir:', err));
 fs.mkdir(imagesDir, { recursive: true }).catch(err => console.error('Error creating images dir:', err));
 
-// Clean up old image files periodically
 const cleanupImages = async () => {
   try {
     const files = await fs.readdir(imagesDir);
@@ -1856,181 +1849,78 @@ const cleanupImages = async () => {
 
 setInterval(cleanupImages, 60 * 60 * 1000);
 
-// Main Code Execution Endpoint
 app.post('/api/code/execute', async (req, res) => {
   const { code, language } = req.body;
-
-  if (!code || !language) {
-    return res.status(400).json({ error: 'Code and language are required' });
-  }
-
-  if (!['python', 'javascript', 'cpp', 'c', 'java'].includes(language)) {
-    return res.status(400).json({ error: 'Only Python, JavaScript, C++, C, and Java are supported' });
-  }
+  if (!code || !language) return res.status(400).json({ error: 'Code and language are required' });
+  if (!['python', 'javascript', 'cpp', 'c', 'java'].includes(language)) return res.status(400).json({ error: 'Unsupported language' });
 
   const baseFileName = `Code${Date.now()}`;
-  let fileExtension = '';
-  let runCommand = '';
-  let baseCommand = '';
   let finalCode = code;
+  const filePath = path.join(tempDir, `${baseFileName}.${language === 'python' ? 'py' : language === 'javascript' ? 'js' : language === 'java' ? 'java' : language}`);
+  const imageFileName = `${baseFileName}.png`;
+  const imageFile = path.join(imagesDir, imageFileName);
 
   try {
     if (language === 'python') {
-      fileExtension = 'py';
-      const filePath = path.join(tempDir, `${baseFileName}.py`);
-      const imageFileName = `${baseFileName}.png`;
-      const imageFile = path.join(imagesDir, imageFileName);
-
-      const containsPlot = /plt\.|matplotlib|pyplot/.test(code);
-      if (containsPlot) {
-        finalCode = `
-import os
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import pandas as pd
-${code}
-plt.savefig('${imageFile}')
-print("Image saved to ${imageFile}")
-        `;
+      if (/plt\.|matplotlib|pyplot/.test(code)) {
+        finalCode = `import os\nimport matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt\nimport pandas as pd\n${code}\nplt.savefig('${imageFile}')\nprint(\"Image saved to ${imageFile}\")`;
       }
-
       await fs.writeFile(filePath, finalCode);
-      runCommand = `python3 "${filePath}"`;
+      const { stdout, stderr } = await execPromise(`python3 "${filePath}"`, { timeout: 20000 });
+      const imageExists = await fs.access(imageFile).then(() => true).catch(() => false);
+      const response = { output: stdout || '', error: stderr || '' };
+      if (imageExists) response.imageUrl = `/images/${imageFileName}`;
+      return res.json(response);
+    }
 
-      try {
-        const { stdout, stderr } = await execPromise(runCommand, { timeout: 10000 });
-
-        const imageExists = await fs.access(imageFile).then(() => true).catch(() => false);
-        const response = {
-          output: stdout || '',
-          error: stderr || ''
-        };
-
-        if (imageExists) {
-          response.imageUrl = `/images/${imageFileName}`;
-        }
-
-        return res.json(response);
-      } catch (err) {
-        return res.status(400).json({
-          error: err.stderr || err.message,
-          output: err.stdout || ''
-        });
-      } finally {
-        await fs.unlink(filePath).catch(() => {});
-      }
-
-    } else if (language === 'javascript') {
-      fileExtension = 'js';
-      const filePath = path.join(tempDir, `${baseFileName}.js`);
-
-      finalCode = `
-(function() {
-  try {
-    ${code}
-  } catch (e) {
-    console.error('JS Execution Error:', e.message);
-    console.error(e.stack);
-  }
-})();
-      `;
-
+    if (language === 'javascript') {
+      finalCode = `(function() { try { ${code} } catch (e) { console.error(e.message); console.error(e.stack); }})();`;
       await fs.writeFile(filePath, finalCode);
-      runCommand = `node "${filePath}"`;
+      const { stdout, stderr } = await execPromise(`node "${filePath}"`, { timeout: 8000 });
+      return res.json({ output: stdout || '', error: stderr || '' });
+    }
 
-      try {
-        const { stdout, stderr } = await execPromise(runCommand, { timeout: 5000 });
-        return res.json({ output: stdout || '', error: stderr || '' });
-      } catch (err) {
-        return res.status(400).json({
-          error: err.stderr || err.message,
-          output: err.stdout || ''
-        });
-      } finally {
-        await fs.unlink(filePath).catch(() => {});
-      }
-
-    } else if (language === 'cpp') {
-      fileExtension = 'cpp';
-      const filePath = path.join(tempDir, `${baseFileName}.cpp`);
+    if (language === 'cpp' || language === 'c') {
       const exeFile = path.join(tempDir, `${baseFileName}.out`);
-
       await fs.writeFile(filePath, code);
-      baseCommand = `g++ "${filePath}" -o "${exeFile}"`;
-      runCommand = `"${exeFile}"`;
+      const compiler = language === 'cpp' ? 'g++' : 'gcc';
+      await execPromise(`${compiler} "${filePath}" -o "${exeFile}"`, { timeout: 10000 });
+      const { stdout, stderr } = await execPromise(`"${exeFile}"`, { timeout: 8000 });
+      return res.json({ output: stdout || '', error: stderr || '' });
+    }
+
+    if (language === 'java') {
+      // Detect class name
+      const classNameMatch = code.match(/public\s+class\s+(\w+)/);
+      const className = classNameMatch ? classNameMatch[1] : baseFileName;
+      const javaFilePath = path.join(tempDir, `${className}.java`);
+      const correctedCode = classNameMatch ? code : `public class ${className} { public static void main(String[] args) { ${code} } }`;
+
+      await fs.writeFile(javaFilePath, correctedCode);
 
       try {
-        await execPromise(baseCommand, { timeout: 5000 });
-        const { stdout, stderr } = await execPromise(runCommand, { timeout: 5000 });
-        return res.json({ output: stdout || '', error: stderr || '' });
-      } catch (err) {
-        return res.status(400).json({
-          error: err.stderr || err.message,
-          output: err.stdout || ''
-        });
-      } finally {
-        await fs.unlink(filePath).catch(() => {});
-        await fs.unlink(exeFile).catch(() => {});
+        await execPromise(`javac "${javaFilePath}"`, { timeout: 20000 });
+      } catch (compErr) {
+        return res.status(400).json({ error: 'Compilation failed: ' + (compErr.stderr || compErr.message) });
       }
 
-    } else if (language === 'c') {
-      fileExtension = 'c';
-      const filePath = path.join(tempDir, `${baseFileName}.c`);
-      const exeFile = path.join(tempDir, `${baseFileName}.out`);
-
-      await fs.writeFile(filePath, code);
-      baseCommand = `gcc "${filePath}" -o "${exeFile}"`;
-      runCommand = `"${exeFile}"`;
-
       try {
-        await execPromise(baseCommand, { timeout: 5000 });
-        const { stdout, stderr } = await execPromise(runCommand, { timeout: 5000 });
+        const { stdout, stderr } = await execPromise(`java -cp "${tempDir}" ${className}`, { timeout: 20000 });
         return res.json({ output: stdout || '', error: stderr || '' });
-      } catch (err) {
-        return res.status(400).json({
-          error: err.stderr || err.message,
-          output: err.stdout || ''
-        });
+      } catch (execErr) {
+        return res.status(400).json({ error: 'Execution failed: ' + (execErr.stderr || execErr.message) });
       } finally {
-        await fs.unlink(filePath).catch(() => {});
-        await fs.unlink(exeFile).catch(() => {});
-      }
-
-    } else if (language === 'java') {
-      fileExtension = 'java';
-      const className = baseFileName;
-      finalCode = code.replace(/public\s+class\s+\w+/, `public class ${className}`);
-      const filePath = path.join(tempDir, `${className}.java`);
-
-      await fs.writeFile(filePath, finalCode);
-      baseCommand = `javac "${filePath}"`;
-      runCommand = `java -cp "${tempDir}" ${className}`;
-
-      try {
-        await execPromise(baseCommand, { timeout: 5000 });
-        const { stdout, stderr } = await execPromise(runCommand, { timeout: 5000 });
-        return res.json({ output: stdout || '', error: stderr || '' });
-      } catch (err) {
-        return res.status(400).json({
-          error: err.stderr || err.message,
-          output: err.stdout || ''
-        });
-      } finally {
-        await fs.unlink(filePath).catch(() => {});
+        await fs.unlink(javaFilePath).catch(() => {});
         await fs.unlink(path.join(tempDir, `${className}.class`)).catch(() => {});
       }
     }
   } catch (err) {
-    console.error('Server error:', err.message);
     return res.status(500).json({ error: `Server error: ${err.message}` });
   }
 });
 
-// Routes and Error Handler
 app.use('/api/code', codeRoutes);
 app.use(errorHandler);
 
-// Start Server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
