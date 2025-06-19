@@ -1811,17 +1811,11 @@ require('dotenv').config();
 
 const execPromise = util.promisify(exec);
 
-// PATH Setup
-process.env.PATH += ';C:\\MinGW\\bin';
-process.env.PATH += ';C:\\Program Files\\Java\\jdk-24\\bin';
-process.env.PATH += ';C:\\Python39';
-process.env.PATH += ';C:\\Program Files\\nodejs';
-
 const app = express();
 
-// Middleware
+// CORS setup for frontend deployment
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type'],
 }));
@@ -1832,15 +1826,15 @@ app.use(express.json());
 const imagesDir = path.join(__dirname, 'temp', 'images');
 app.use('/images', express.static(imagesDir));
 
-// MongoDB
+// MongoDB connection
 connectDB();
 
-// Directories
+// Create necessary directories
 const tempDir = path.join(__dirname, 'temp');
 fs.mkdir(tempDir, { recursive: true }).catch(err => console.error('Error creating temp dir:', err));
 fs.mkdir(imagesDir, { recursive: true }).catch(err => console.error('Error creating images dir:', err));
 
-// Image cleanup
+// Clean up old image files periodically
 const cleanupImages = async () => {
   try {
     const files = await fs.readdir(imagesDir);
@@ -1861,39 +1855,33 @@ const cleanupImages = async () => {
 
 setInterval(cleanupImages, 60 * 60 * 1000);
 
-// Code execution
+// Main Code Execution Endpoint
 app.post('/api/code/execute', async (req, res) => {
-  console.log('Received /api/code/execute request:', req.body);
   const { code, language } = req.body;
-  
+
   if (!code || !language) {
-    console.log('Validation failed: Code or language missing');
     return res.status(400).json({ error: 'Code and language are required' });
   }
-  
+
   if (!['python', 'javascript', 'cpp', 'c', 'java'].includes(language)) {
-    console.log('Validation failed: Unsupported language:', language);
     return res.status(400).json({ error: 'Only Python, JavaScript, C++, C, and Java are supported' });
   }
-  
+
   const baseFileName = `Code${Date.now()}`;
   let fileExtension = '';
   let runCommand = '';
   let baseCommand = '';
   let finalCode = code;
-  
+
   try {
     if (language === 'python') {
       fileExtension = 'py';
       const filePath = path.join(tempDir, `${baseFileName}.py`);
       const imageFileName = `${baseFileName}.png`;
       const imageFile = path.join(imagesDir, imageFileName);
-      console.log('Processing Python code, filePath:', filePath);
-      
+
       const containsPlot = /plt\.|matplotlib|pyplot/.test(code);
-      
       if (containsPlot) {
-        console.log('Detected plotting code, adding savefig');
         finalCode = `
 import os
 import matplotlib
@@ -1901,52 +1889,41 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import pandas as pd
 ${code}
-plt.savefig('${imageFile.replace(/\\/g, '\\\\')}')
-print("Image saved to ${imageFile.replace(/\\/g, '\\\\')}")
+plt.savefig('${imageFile}')
+print("Image saved to ${imageFile}")
         `;
       }
-      
+
       await fs.writeFile(filePath, finalCode);
-      console.log('File written:', filePath);
-      
-      runCommand = `python "${filePath}"`;
-      console.log('Executing command:', runCommand);
-      
+      runCommand = `python3 "${filePath}"`;
+
       try {
         const { stdout, stderr } = await execPromise(runCommand, { timeout: 10000 });
-        console.log('Execution result:', { stdout, stderr });
-        
+
         const imageExists = await fs.access(imageFile).then(() => true).catch(() => false);
-        
-        const response = { 
-          output: stdout || '', 
-          error: stderr || '' 
+        const response = {
+          output: stdout || '',
+          error: stderr || ''
         };
-        
+
         if (imageExists) {
           response.imageUrl = `/images/${imageFileName}`;
         }
-        
-        console.log('Sending response:', response);
+
         return res.json(response);
       } catch (err) {
-        console.error('Execution error:', err.message, err.stack);
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: err.stderr || err.message,
           output: err.stdout || ''
         });
       } finally {
-        await fs.unlink(filePath).catch(err => console.error(`Error deleting ${filePath}:`, err));
+        await fs.unlink(filePath).catch(() => {});
       }
+
     } else if (language === 'javascript') {
-      console.log('Processing JavaScript code');
-      
-      // Create a temporary JS file
       fileExtension = 'js';
       const filePath = path.join(tempDir, `${baseFileName}.js`);
-      
-      // Wrap the code in a function to avoid polluting global scope
-      // and add proper termination
+
       finalCode = `
 (function() {
   try {
@@ -1957,167 +1934,94 @@ print("Image saved to ${imageFile.replace(/\\/g, '\\\\')}")
   }
 })();
       `;
-      
-      // Write code to file
+
       await fs.writeFile(filePath, finalCode);
-      console.log('File written:', filePath);
-      
-      // Build execution command
-      runCommand = `node --no-warnings "${filePath}"`;
-      console.log('Executing command:', runCommand);
-      
+      runCommand = `node "${filePath}"`;
+
       try {
-        const { stdout, stderr } = await execPromise(runCommand, {
-          timeout: 5000,
-          env: { ...process.env, NODE_OPTIONS: '' },
-        });
-        
-        console.log('Execution result:', { stdout, stderr });
-        
-        const response = { 
-          output: stdout || '', 
-          error: stderr || '' 
-        };
-        
-        console.log('Sending response:', response);
-        return res.json(response);
+        const { stdout, stderr } = await execPromise(runCommand, { timeout: 5000 });
+        return res.json({ output: stdout || '', error: stderr || '' });
       } catch (err) {
-        console.error('Execution error for JavaScript:', err.message, err.stack);
-        
-        // Handle timeout specifically
-        if (err.killed && err.signal === 'SIGTERM') {
-          return res.status(400).json({ 
-            error: 'JavaScript execution timed out (5 seconds)',
-            output: err.stdout || ''
-          });
-        }
-        
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: err.stderr || err.message,
           output: err.stdout || ''
         });
       } finally {
-        await fs.unlink(filePath).catch(err => console.error(`Error deleting ${filePath}:`, err));
+        await fs.unlink(filePath).catch(() => {});
       }
+
     } else if (language === 'cpp') {
       fileExtension = 'cpp';
       const filePath = path.join(tempDir, `${baseFileName}.cpp`);
-      const exeFile = path.join(tempDir, `${baseFileName}.exe`);
-      console.log('Processing C++ code, filePath:', filePath);
-      
+      const exeFile = path.join(tempDir, `${baseFileName}.out`);
+
       await fs.writeFile(filePath, code);
-      console.log('File written:', filePath);
-      
-      baseCommand = `g++ "${filePath}" -I "C:\\local\\boost_1_85_0" -o "${exeFile}"`;
+      baseCommand = `g++ "${filePath}" -o "${exeFile}"`;
       runCommand = `"${exeFile}"`;
-      console.log('Compiling command:', baseCommand);
-      
+
       try {
         await execPromise(baseCommand, { timeout: 5000 });
-        console.log('Compilation successful, executing:', runCommand);
-        
         const { stdout, stderr } = await execPromise(runCommand, { timeout: 5000 });
-        console.log('Execution result:', { stdout, stderr });
-        
-        const response = { 
-          output: stdout || '', 
-          error: stderr || '' 
-        };
-        
-        console.log('Sending response:', response);
-        return res.json(response);
+        return res.json({ output: stdout || '', error: stderr || '' });
       } catch (err) {
-        console.error('Execution error:', err.message, err.stack);
-        
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: err.stderr || err.message,
           output: err.stdout || ''
         });
       } finally {
-        await fs.unlink(filePath).catch(err => console.error(`Error deleting ${filePath}:`, err));
-        await fs.unlink(exeFile).catch(err => console.error(`Error deleting ${exeFile}:`, err));
+        await fs.unlink(filePath).catch(() => {});
+        await fs.unlink(exeFile).catch(() => {});
       }
+
     } else if (language === 'c') {
       fileExtension = 'c';
       const filePath = path.join(tempDir, `${baseFileName}.c`);
-      const exeFile = path.join(tempDir, `${baseFileName}.exe`);
-      console.log('Processing C code, filePath:', filePath);
-      
+      const exeFile = path.join(tempDir, `${baseFileName}.out`);
+
       await fs.writeFile(filePath, code);
-      console.log('File written:', filePath);
-      
       baseCommand = `gcc "${filePath}" -o "${exeFile}"`;
       runCommand = `"${exeFile}"`;
-      console.log('Compiling command:', baseCommand);
-      
+
       try {
         await execPromise(baseCommand, { timeout: 5000 });
-        console.log('Compilation successful, executing:', runCommand);
-        
         const { stdout, stderr } = await execPromise(runCommand, { timeout: 5000 });
-        console.log('Execution result:', { stdout, stderr });
-        
-        const response = { 
-          output: stdout || '', 
-          error: stderr || '' 
-        };
-        
-        console.log('Sending response:', response);
-        return res.json(response);
+        return res.json({ output: stdout || '', error: stderr || '' });
       } catch (err) {
-        console.error('Execution error:', err.message, err.stack);
-        
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: err.stderr || err.message,
           output: err.stdout || ''
         });
       } finally {
-        await fs.unlink(filePath).catch(err => console.error(`Error deleting ${filePath}:`, err));
-        await fs.unlink(exeFile).catch(err => console.error(`Error deleting ${exeFile}:`, err));
+        await fs.unlink(filePath).catch(() => {});
+        await fs.unlink(exeFile).catch(() => {});
       }
+
     } else if (language === 'java') {
       fileExtension = 'java';
-      finalCode = code.replace(/public\s+class\s+\w+/, `public class ${baseFileName}`);
-      const filePath = path.join(tempDir, `${baseFileName}.java`);
-      console.log('Processing Java code, filePath:', filePath);
-      
+      const className = baseFileName;
+      finalCode = code.replace(/public\s+class\s+\w+/, `public class ${className}`);
+      const filePath = path.join(tempDir, `${className}.java`);
+
       await fs.writeFile(filePath, finalCode);
-      console.log('File written:', filePath);
-      
-      const classpath = `${tempDir};${path.join(__dirname, 'libs', 'json-20231013.jar')};${path.join(__dirname, 'libs', 'guava-33.2.0.jar')}`;
-      baseCommand = `"C:\\Program Files\\Java\\jdk-24\\bin\\javac" -cp "${classpath}" "${filePath}"`;
-      runCommand = `"C:\\Program Files\\Java\\jdk-24\\bin\\java" -cp "${classpath}" ${baseFileName}`;
-      console.log('Compiling command:', baseCommand);
-      
+      baseCommand = `javac "${filePath}"`;
+      runCommand = `java -cp "${tempDir}" ${className}`;
+
       try {
         await execPromise(baseCommand, { timeout: 5000 });
-        console.log('Compilation successful, executing:', runCommand);
-        
         const { stdout, stderr } = await execPromise(runCommand, { timeout: 5000 });
-        console.log('Execution result:', { stdout, stderr });
-        
-        const response = { 
-          output: stdout || '', 
-          error: stderr || '' 
-        };
-        
-        console.log('Sending response:', response);
-        return res.json(response);
+        return res.json({ output: stdout || '', error: stderr || '' });
       } catch (err) {
-        console.error('Execution error:', err.message, err.stack);
-        
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: err.stderr || err.message,
           output: err.stdout || ''
         });
       } finally {
-        await fs.unlink(filePath).catch(err => console.error(`Error deleting ${filePath}:`, err));
-        const classFile = path.join(tempDir, `${baseFileName}.class`);
-        await fs.unlink(classFile).catch(err => console.error(`Error deleting ${classFile}:`, err));
+        await fs.unlink(filePath).catch(() => {});
+        await fs.unlink(path.join(tempDir, `${className}.class`)).catch(() => {});
       }
     }
   } catch (err) {
-    console.error('Server error:', err.message, err.stack);
+    console.error('Server error:', err.message);
     return res.status(500).json({ error: `Server error: ${err.message}` });
   }
 });
@@ -2126,6 +2030,6 @@ print("Image saved to ${imageFile.replace(/\\/g, '\\\\')}")
 app.use('/api/code', codeRoutes);
 app.use(errorHandler);
 
-// Server Start
+// Start Server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

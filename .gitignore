@@ -1,0 +1,17 @@
+# Ignore environment config
+.env
+
+# Node.js dependencies
+node_modules/
+
+# Logs
+*.log
+
+# Local IDE configs
+.vscode/
+
+# Temp or generated code files
+temp/
+
+# OS/System files
+.DS_Store
