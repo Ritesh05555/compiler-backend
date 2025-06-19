@@ -1815,10 +1815,11 @@ const app = express();
 
 // CORS setup for frontend deployment
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: 'https://compiler-frontend-gxeb.onrender.com',
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type'],
 }));
+
 
 app.use(express.json());
 
