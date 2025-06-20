@@ -2235,7 +2235,7 @@ require('dotenv').config();
 
 const app = express();
 app.use(cors({
-  origin: ['https://compiler-frontend-gxeb.onrender.com'],
+  origin: ['https://kode-smith.onrender.com'],
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type'],
 }));
